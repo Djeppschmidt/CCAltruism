@@ -278,7 +278,7 @@ altruist-number
 altruist-number
 0
 75
-18.0
+20.0
 1
 1
 NIL
@@ -308,7 +308,7 @@ hardship
 hardship
 0
 5
-1.656
+3.9
 0.001
 1
 NIL
@@ -877,14 +877,16 @@ NetLogo 6.1.0
 @#$#@#$#@
 @#$#@#$#@
 <experiments>
-  <experiment name="Altruist_climate_ramp" repetitions="200" runMetricsEveryStep="true">
+  <experiment name="Altruist_climate_ramp" repetitions="10" runMetricsEveryStep="true">
     <setup>setup</setup>
     <go>go</go>
-    <metric>count Failures</metric>
+    <timeLimit steps="200"/>
     <metric>sum [Waste] of altruists</metric>
     <metric>sum [Harvest] of altruists</metric>
     <metric>min [Harvest] of altruists</metric>
     <metric>max [Harvest] of altruists</metric>
+    <metric>count foods</metric>
+    <metric>count (altruists) with [Harvest &lt;= 0]</metric>
     <enumeratedValueSet variable="connect-number">
       <value value="3"/>
     </enumeratedValueSet>
@@ -900,9 +902,38 @@ NetLogo 6.1.0
     <enumeratedValueSet variable="Shared">
       <value value="0.33"/>
     </enumeratedValueSet>
-    <steppedValueSet variable="hardship" first="0.1" step="0.2" last="3"/>
+    <steppedValueSet variable="hardship" first="0.1" step="0.2" last="4"/>
     <enumeratedValueSet variable="miser-number">
       <value value="0"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="Miser_climate_ramp" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="200"/>
+    <metric>sum [Waste] of misers</metric>
+    <metric>sum [Harvest] of misers</metric>
+    <metric>min [Harvest] of misers</metric>
+    <metric>max [Harvest] of misers</metric>
+    <metric>count (misers) with [Harvest &lt;= 0]</metric>
+    <enumeratedValueSet variable="connect-number">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="resource-abundance">
+      <value value="2"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="altruist-number">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Max.Resource">
+      <value value="52"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Shared">
+      <value value="0.33"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="hardship" first="0.1" step="0.2" last="4"/>
+    <enumeratedValueSet variable="miser-number">
+      <value value="20"/>
     </enumeratedValueSet>
   </experiment>
 </experiments>

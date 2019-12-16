@@ -8,6 +8,10 @@ globals [
  total-closures
  Mwealth
  Failures
+ MR
+ MaxR
+ HungryN
+ SRisk
 ]
 
 breed [altruists altruist] ;; always shares some portion of harvest
@@ -20,9 +24,12 @@ turtles-own [
   Harvest           ;; the amount of harvest this turtle has
   Waste             ;; amount of wasted harvest each turtle has
   Demand            ;; metabolic demand of turtle, representing number in family unit
-  Hunger            ;; difference between demand and harvest this round
+  Hunger            ;; 1 is turtle has less than 3 food, 0 is condition not met
+  Risk              ;; 1 is turtle has less than 10 food, 0 is condition not met
   Vision            ;; radius of vision
   tshare            ;; amount to share
+  time_poor         ;; number of ticks ended with 0 food
+  time_rich         ;; number of tickes ended with max food
   ;age               ;; age of the turtle
   ;; the amount of harvest that each turtle uses during each tick and how far they can see
 ]
@@ -34,7 +41,7 @@ patches-own [
   closureCondition   ;; logical, whether patch triggers closure of whole management area
 ]
 
-directed-link-breed [knowledge a-knowledge]
+;;-link-breed [knowledge a-knowledge]
 directed-link-breed [foods food]
 directed-link-breed [memory amemory]
 
@@ -58,11 +65,16 @@ to setup
   clear-all
   set total-closures 0
   set Failures 0
+  set MR 0
+  set MaxR 0
+  set SRisk 0
+  set HungryN 0
   ;set Mwealth mean [Harvest] of turtles
   setup-patches
   setup-turtles
   set-default-shape turtles "person"
-  set-default-shape habitat "line"
+  ;;set-default-shape habitat "line"
+  ask habitat [hide-turtle]
   reset-ticks
 end
 
@@ -71,6 +83,8 @@ to setup-turtles
   ask altruists [set color blue]
   create-misers miser-number
   ask misers [set color red]
+  ask (turtle-set altruists misers) [set time_poor 0
+    set time_rich 0]
   ;create-friendly friendly-number
   ;ask friendly [set color (blue + 2)]
   ;create-Vfriendly Vfriendly-number
@@ -79,13 +93,15 @@ to setup-turtles
       set Harvest random 20
       set Demand random 5
       set Waste 0
-      ;set age random 100
+      set Risk 0
+      Set Hunger 0
+      set Vision (2 * Demand - Hardship)
       setxy random-pxcor random-pycor]
   ask (turtle-set altruists misers) [
     repeat 5 [
       ;let impossible-h (patches in-radius 3 with [any? misers or any? altruists])
       move-to one-of habitat
-      let v [Resource] of patch-here
+      let v [resource] of patch-here
       create-memory-to habitat-here [set val v
       set time 12
         set color yellow]]]
@@ -100,59 +116,59 @@ end
 to setup-patches
   ask patches[
    ; set quality random
-  set quality random 20
-  set resource random-poisson resource-abundance + quality
+  set quality random-exponential 1
+  set resource random-poisson (resource-abundance + quality)
   set closureCondition random-poisson 0.000001
   set pcolor (green + resource)
-  set max-resource (quality * 10)
-    sprout-habitat 1 [set color grey]
+  ;set max-resource (quality * 10)
+    sprout-habitat 1
   ]
 end
-;;set pcolor (yellow + 4.9 - psugar)
-;; Runtime Procedures
-;;
 
 to go
+  ;show max([quality] of patches)
+  ask links [hide-link] ; for simplified visualization
+
+  ; run model
   ask patches[
   patch-grow
-  patch-manage
   ]
-  ask patches [set pcolor (green + resource)]
+  patch-manage
+  ask patches [set pcolor (green - quality)]
 
   ask (turtle-set misers altruists) [
-  ;turtle-eat
   turtle-explore
   turtle-Harvest
-  ;;turtle-move
   turtle-share
   ]
 
   ask links [
     if time = 0 [die]
     set time (time - 1)]
-  ;set altruist-wealth mean [Harvest] of altruists
-  ;set miser-wealth mean [Harvest] of misers
-  ;set cohesion count links
-  ;set Mwealth mean [Harvest] of turtles
+
+  ;; RECORD METRICS
   if any? (turtle-set altruists misers) with [ Harvest <= 0 ] [set Failures (Failures + 1)]
-  show min [Harvest] of (turtle-set altruists misers)
+  set MR mean [resource] of patches
+  set MaxR max [resource] of patches
+  ask (turtle-set altruists misers) [if Harvest = 0 [set time_poor (time_poor + 1)] if Harvest = Max.Resource [set time_rich (time_rich + 1)]]
+  set HungryN sum [Hunger] of (turtle-set altruists misers)
+  set SRisk sum [Risk] of (turtle-set altruists misers)
+
+  ask habitat with [(count my-in-memory) > 4] [ask my-in-memory [show-link]] ; for simplified visualization
   tick
 end
- ; write this one to account for memory sharing ...
-;to turtle-move ;; identify highest resource value
-;   set Vision (2 * Demand - Hardship)
-;  if Vision < 1 [set Vision 0]
-;  let possible-harvest ( patches in-radius Vision ) with [not any? turtles-here]
-;   ;move-to max-one-of patches in-radius Vision [Resource]
-;  if any? possible-harvest [move-to max-one-of possible-harvest [Resource]]
-;  set Harvest (Harvest + Resource)
-;end
 
+; consume Harvest according to demand
+; set hunger parameters for each turtle
 to turtle-eat
   set Harvest (Harvest - (Demand * 0.5))
   if Harvest < 0 [set Harvest 0]
+  ifelse Harvest < 3 [set Hunger 1] [set Hunger 0]
+  ifelse Harvest < 10 [set Risk 1] [set Risk 0]
 end
 
+
+; have turtles look for new resources around them
 to turtle-explore
    set Vision (2 * Demand - Hardship)
   if Vision < 1 [set Vision 0]
@@ -161,22 +177,21 @@ to turtle-explore
     repeat (Vision + 1) [
       if any? possible-harvest [move-to one-of possible-harvest ]
       let v [Resource] of patch-here
-      ;let mh [who] of habitat-here
-      ;print [who] of habitat-here
+
       ask self [create-memory-to habitat-here [set val v
         set time 12
         set color yellow
         ;set my-habitat mh
       ]
     ]]
-    if any? my-memory [
+    if any? my-out-memory [
       let g reverse sort-on [val] my-out-memory
       let t 0
       while [(count turtles-here) > 2] [
         let h item t g
         let hnot [end2] of h
         move-to hnot
-        set t (t + 1)
+        set t (t + 1) ;; Move the the highest value in memory without a turtle on it
 
   ]]]
   if Vision = 0 [
@@ -191,12 +206,14 @@ to turtle-explore
       ]]]
   move-to one-of n
   ]
-
 end
 
+;let turtles harvest patches
 to turtle-harvest
-  set Harvest (Harvest + Resource)
+  let r [resource] of patch-here
+  set Harvest (Harvest + resource)
 end
+
 ; asks all agents who are going to give, to donate to the least wealthy members of the community.
 ;The number of people and proportion they donate depends on sliders
 to turtle-share
@@ -207,37 +224,55 @@ to turtle-share
     let given tshare
     if Harvest > Max.Resource [set given (tshare + (Harvest - Max.Resource))]
     create-foods-to recipients
-    ask foods [set time 12]
+    ask foods [set time 1]
     ask recipients [set Harvest (Harvest + (given / count recipients))]
     set Harvest (Harvest - given)
+    let h habitat-here
+
    ask recipients[
-    if any? my-memory [
-    let g max-one-of my-out-memory [val]
-    let h [end2] of g
-    let v [val] of g
-    ask myself [create-amemory-to h [set val v set time 12 set color yellow]]
-    ;ask recipients [create-amemory-to h [set val v set time 48 set color yellow]]
+      ifelse e-Knowledge > count my-out-memory [
+        let mem max-n-of count out-amemory-neighbors out-amemory-neighbors [resource]
+        ask myself [
+          repeat e-Knowledge [move-to one-of mem
+            let v [resource] of patch-here
+        create-memory-to habitat-here [set val v
+        set time 12
+        set color yellow
+      ]]
+          move-to one-of h]]
+
+        [
+          let mem max-n-of e-Knowledge out-amemory-neighbors [resource]
+        ask myself [
+          repeat e-Knowledge [move-to one-of mem
+            let v [resource] of patch-here
+        create-memory-to habitat-here [set val v
+        set time 12
+        set color yellow
+      ]]
+          move-to one-of h]]
+
   ]]
-  ]
+
   turtle-eat
   ask (turtle-set altruists misers) [if harvest > Max.Resource [ set Waste (Waste + harvest - Max.Resource)
   set harvest Max.Resource]]
 end
 
+; reset closure condition for the next round
 to patch-grow
-;set resource random-poisson resource-abundance
-;set resource random-poisson (resource-abundance + quality)
- ; if resource > max-resource [set resource max-resource]
 set closureCondition random-poisson (0.0001 + (0.001 * hardship))
 
 end
 
+; determine closure condition, and set resources for this round
 to patch-manage
   ifelse any? patches with [closureCondition != 0]
-  [set resource 0
-  set total-closures (total-closures + 1)];; if there are any closers, all patches are 0
-  [set resource random-poisson (resource-abundance + quality)
-  if resource > max-resource [set resource max-resource]]
+  [
+  set total-closures (total-closures + 1)
+    ask patches [set resource 0]
+  ]
+  [ask patches [set resource random-poisson (resource-abundance + quality)]]
   ;;make slider for resource abundance
 
 end
@@ -278,7 +313,7 @@ altruist-number
 altruist-number
 0
 75
-18.0
+0.0
 1
 1
 NIL
@@ -308,7 +343,7 @@ hardship
 hardship
 0
 5
-1.656
+3.6
 0.001
 1
 NIL
@@ -372,7 +407,7 @@ miser-number
 miser-number
 0
 75
-0.0
+2.0
 1
 1
 NIL
@@ -443,7 +478,7 @@ true
 false
 "" ""
 PENS
-"pen-1" 1.0 0 -7500403 true "" "plot count foods"
+"pen-1" 1.0 0 -7500403 true "" "plot count habitat with [(count my-in-memory) > 1]"
 
 MONITOR
 216
@@ -492,10 +527,10 @@ PENS
 "default" 1.0 0 -2674135 true "" "plot Failures"
 
 PLOT
-651
-291
-851
-441
+652
+329
+852
+479
 waste
 NIL
 NIL
@@ -508,6 +543,32 @@ false
 "" ""
 PENS
 "default" 1.0 0 -16777216 true "" "plot sum [waste] of (turtle-set altruists misers)"
+
+MONITOR
+297
+450
+398
+495
+NIL
+total-closures
+17
+1
+11
+
+SLIDER
+656
+292
+828
+325
+e-Knowledge
+e-Knowledge
+0
+5
+5.0
+1
+1
+NIL
+HORIZONTAL
 
 @#$#@#$#@
 ## WHAT IS IT?
@@ -877,14 +938,157 @@ NetLogo 6.1.0
 @#$#@#$#@
 @#$#@#$#@
 <experiments>
-  <experiment name="Altruist_climate_ramp" repetitions="200" runMetricsEveryStep="true">
+  <experiment name="Altruist_climate_ramp" repetitions="100" runMetricsEveryStep="true">
     <setup>setup</setup>
     <go>go</go>
-    <metric>count Failures</metric>
-    <metric>sum [Waste] of altruists</metric>
-    <metric>sum [Harvest] of altruists</metric>
-    <metric>min [Harvest] of altruists</metric>
-    <metric>max [Harvest] of altruists</metric>
+    <timeLimit steps="200"/>
+    <metric>total-closures</metric>
+    <metric>HungryN</metric>
+    <metric>SRisk</metric>
+    <metric>Failures</metric>
+    <metric>sum [Waste] of (turtle-set altruists misers)</metric>
+    <metric>sum [Harvest] of (turtle-set altruists misers)</metric>
+    <metric>max [Harvest] of (turtle-set altruists misers) - min [Harvest] of (turtle-set altruists misers)</metric>
+    <enumeratedValueSet variable="connect-number">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="resource-abundance">
+      <value value="2"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="altruist-number">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Max.Resource">
+      <value value="52"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Shared">
+      <value value="0.33"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="hardship" first="0.1" step="0.2" last="3"/>
+    <enumeratedValueSet variable="miser-number">
+      <value value="20"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="EnvRamp-Hardship" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="200"/>
+    <metric>total-closures</metric>
+    <metric>mean [resource] of patches</metric>
+    <enumeratedValueSet variable="connect-number">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="resource-abundance">
+      <value value="2"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="altruist-number">
+      <value value="10"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Max.Resource">
+      <value value="52"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Shared">
+      <value value="0.33"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="hardship" first="0.1" step="0.2" last="4"/>
+    <enumeratedValueSet variable="miser-number">
+      <value value="0"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="EnvRamp-Resource" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="200"/>
+    <metric>total-closures</metric>
+    <metric>mean [resource] of patches</metric>
+    <metric>[resource] of patches</metric>
+    <metric>max [resource] of patches</metric>
+    <enumeratedValueSet variable="connect-number">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="resource-abundance">
+      <value value="1"/>
+      <value value="2"/>
+      <value value="3"/>
+      <value value="4"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="altruist-number">
+      <value value="18"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Max.Resource">
+      <value value="52"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Shared">
+      <value value="0.33"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="hardship" first="0.1" step="0.25" last="2"/>
+    <enumeratedValueSet variable="miser-number">
+      <value value="0"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="Resource-dist" repetitions="1" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="1000"/>
+    <metric>[resource] of patches</metric>
+    <enumeratedValueSet variable="connect-number">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="resource-abundance">
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="altruist-number">
+      <value value="18"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Max.Resource">
+      <value value="52"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Shared">
+      <value value="0.33"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="hardship">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="miser-number">
+      <value value="0"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="Miser-Climate Ramp" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="200"/>
+    <metric>count misers with [Harvest = 0]</metric>
+    <enumeratedValueSet variable="connect-number">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="resource-abundance">
+      <value value="2"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="altruist-number">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Max.Resource">
+      <value value="52"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="Shared">
+      <value value="0.33"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="hardship" first="0.1" step="0.5" last="4"/>
+    <enumeratedValueSet variable="miser-number">
+      <value value="2"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="Altruist_Sharing_ramp" repetitions="100" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="200"/>
+    <metric>total-closures</metric>
+    <metric>HungryN</metric>
+    <metric>SRisk</metric>
+    <metric>Failures</metric>
+    <metric>sum [Waste] of (turtle-set altruists misers)</metric>
+    <metric>sum [Harvest] of (turtle-set altruists misers)</metric>
+    <metric>max [Harvest] of (turtle-set altruists misers) - min [Harvest] of (turtle-set altruists misers)</metric>
     <enumeratedValueSet variable="connect-number">
       <value value="3"/>
     </enumeratedValueSet>
@@ -900,9 +1104,15 @@ NetLogo 6.1.0
     <enumeratedValueSet variable="Shared">
       <value value="0.33"/>
     </enumeratedValueSet>
-    <steppedValueSet variable="hardship" first="0.1" step="0.2" last="3"/>
+    <steppedValueSet variable="hardship" first="1" step="0.5" last="3"/>
     <enumeratedValueSet variable="miser-number">
       <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="e-knowledge">
+      <value value="0"/>
+      <value value="1"/>
+      <value value="3"/>
+      <value value="5"/>
     </enumeratedValueSet>
   </experiment>
 </experiments>
